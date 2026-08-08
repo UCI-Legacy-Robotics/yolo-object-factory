@@ -1,0 +1,3 @@
+# Claude Code configuration (local to each machine).
+# Unanchored, so this also covers a .claude/ created inside object_detection/.
+.claude/
