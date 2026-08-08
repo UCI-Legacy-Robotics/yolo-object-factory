@@ -1,0 +1,46 @@
+# Dataset — ignore everything under data/ (downloaded Roboflow exports, caches,
+# generated descriptors) and re-include only the files we actually maintain, so
+# a new dataset version never needs a .gitignore change.
+data/*
+!data/data.py
+!data/data.yaml
+!data/load_data.ipynb
+
+# Training outputs
+runs/
+
+# Exported model files
+models/
+*.pt
+
+# Environment variables
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Agent instructions
+todo.md
+
+# Localized configs
+configs/train_config_local.yaml
+
+# Local PR drafts
+PR_REQUEST.md
