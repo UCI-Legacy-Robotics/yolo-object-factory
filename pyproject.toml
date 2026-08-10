@@ -1,0 +1,22 @@
+[project]
+name = "object_detection"
+version = "0.1.0"
+description = "YOLO object detection API and training pipeline for the University Rover Challenge"
+requires-python = ">=3.10"
+dependencies = [
+    "ultralytics>=8.2",
+    "torch>=2.0",
+    "opencv-python",
+    "numpy",
+    "pyyaml",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+# Only the package itself is declared. src/, data/, configs/, and scripts/ are
+# the training pipeline, used from a checkout rather than from an install — the
+# ROS/Jetson side needs detector_api and an exported model file, nothing more.
+[tool.setuptools]
+packages = ["object_detection"]

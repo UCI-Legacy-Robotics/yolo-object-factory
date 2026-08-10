@@ -1,3 +1,10 @@
 # Claude Code configuration (local to each machine).
 # Unanchored, so this also covers a .claude/ created inside object_detection/.
 .claude/
+
+# Python build artifacts. pyproject.toml lives at the root, so builds and
+# editable installs generate these here rather than under object_detection/.
+*.egg-info/
+build/
+dist/
+__pycache__/
