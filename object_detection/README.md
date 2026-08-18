@@ -179,6 +179,163 @@ up — training loss still falling while validation loss turns back upward. Sinc
 above `--weights` (`runs/<name>/results.png`) and skipped if that directory is
 no longer around.
 
+## API Guide
+
+The `detector_api` module is the public interface between this training pipeline
+and anything that runs inference — a ROS2 node, a Jetson deployment script, or a
+standalone test harness. It exposes two symbols: a `Detector` class that holds a
+loaded model and a `Detection` dataclass for each detected object.
+
+### Installation
+
+From the repo root (or any machine that needs the API):
+
+```bash
+pip install -e /path/to/yolo-object-factory
+```
+
+This uses the `pyproject.toml` at the repo root. Only the `object_detection`
+package is installed — training scripts, configs, and data stay in the checkout.
+
+### Import
+
+Both of these work:
+
+```python
+from object_detection import Detector, Detection
+from object_detection.detector_api import Detector, Detection
+```
+
+### `Detection` Dataclass
+
+Each detected object is returned as a plain Python dataclass:
+
+```python
+@dataclass
+class Detection:
+    class_name: str                        # e.g. "bottle", "mallet"
+    class_id: int                          # numeric class index
+    confidence: float                      # 0.0–1.0
+    bbox: tuple[int, int, int, int]        # (x1, y1, x2, y2) pixel coordinates
+```
+
+No Ultralytics types leak out — a `Detection` converts trivially into a ROS
+message, JSON, or any serialization format.
+
+### `Detector` Class
+
+#### Constructor
+
+```python
+Detector(
+    model_path: str | Path,        # .pt, .onnx, or .engine file
+    conf: float = 0.25,            # confidence threshold
+    imgsz: int = 640,              # inference input resolution
+    device: int | str = 0,         # GPU index, or "cpu" / "mps"
+)
+```
+
+| Parameter | Notes |
+|---|---|
+| `model_path` | Ultralytics picks the runtime from the file extension. The same call works for a PyTorch checkpoint, ONNX model, or a TensorRT engine. |
+| `conf` | Detections below this confidence are dropped before they reach your code. |
+| `imgsz` | Must match the `imgsz` the model was exported with when using a `.engine` file. |
+| `device` | Pass `0` for the first GPU, `"cpu"` for CPU-only machines, or `"mps"` for Apple Silicon. |
+
+The model is loaded **once** in `__init__`. Loading takes seconds and must not
+happen per-frame — this is why the class is stateful.
+
+#### `detect(image) → list[Detection]`
+
+```python
+detections = detector.detect(image)
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| `image` | `numpy.ndarray` | BGR image array, e.g. from `cv_bridge` or `cv2.imread()`. Passed directly to the model — no filesystem round-trip. |
+
+Returns a list of `Detection` objects for everything above the confidence
+threshold. Returns an empty list when nothing is detected.
+
+### Minimal Example
+
+```python
+import cv2
+from object_detection import Detector
+
+# Load once
+detector = Detector("models/best.engine", conf=0.3, device=0)
+
+# Run on a single image
+frame = cv2.imread("test.jpg")
+for det in detector.detect(frame):
+    print(f"{det.class_name}  {det.confidence:.2f}  {det.bbox}")
+```
+
+### Model Format Pipeline
+
+Train → export → deploy. The export step is already built:
+
+```bash
+# TensorRT engine for Jetson (FP16)
+python src/export.py --weights runs/yolo11s_baseline/weights/best.pt --format engine --half
+
+# ONNX for any GPU
+python src/export.py --weights runs/yolo11s_baseline/weights/best.pt --format onnx
+```
+
+Then point `Detector(model_path=...)` at whichever file you exported.
+
+### ROS2 Integration
+
+The `Detector` is designed to slot into a ROS2 image callback. A typical node
+(which lives in the **rover repo**, not here) looks like:
+
+```python
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Image
+from cv_bridge import CvBridge
+from vision_msgs.msg import Detection2DArray, Detection2D, ObjectHypothesisWithPose
+
+from object_detection import Detector
+
+class YoloDetectorNode(Node):
+    def __init__(self):
+        super().__init__("yolo_detector")
+        self.bridge = CvBridge()
+        self.detector = Detector(
+            model_path=self.declare_parameter("model_path", "best.engine").value,
+            conf=self.declare_parameter("confidence", 0.25).value,
+        )
+        self.sub = self.create_subscription(
+            Image, "/camera/image_raw", self.image_cb, 10
+        )
+        self.pub = self.create_publisher(Detection2DArray, "/detections", 10)
+
+    def image_cb(self, msg):
+        frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+        detections = self.detector.detect(frame)
+        # Convert detections to Detection2DArray and publish ...
+```
+
+> **Note:** The ROS node code belongs in the rover repo. This repo's job ends at
+> providing `Detector`, `Detection`, and the exported model file.
+
+### CLI Inference (standalone)
+
+For quick testing outside ROS, use `src/inference.py` directly:
+
+```bash
+python src/inference.py --model models/best.engine --source 0          # webcam
+python src/inference.py --model models/best.onnx  --source image.jpg   # single image
+```
+
+This loads the model per-invocation and returns raw Ultralytics `Results` — fine
+for one-off testing, but not for real-time callbacks. Use the `Detector` class
+for anything persistent.
+
 ## HPC3 Usage
 
 HPC3 is a SLURM cluster: you do not run training on the login node, you submit a
